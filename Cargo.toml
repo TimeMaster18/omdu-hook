@@ -13,6 +13,7 @@ element-ptr = "0.0.2"
 retour = { git = "https://github.com/Hpmason/retour-rs", features = ["static-detour"] }
 simple-log = "1.6.0"
 widestring = "1.0.2"
+lazy_static = "1.4"
 windows = { version = "0.54.0", features = [
   "Win32_System_LibraryLoader",
   "Win32_System_SystemServices",

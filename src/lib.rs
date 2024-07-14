@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use anyhow::{anyhow, Context, Result};
 use element_ptr::element_ptr;
@@ -11,6 +12,39 @@ use windows::Win32::{
         Threading::{GetCurrentThread, QueueUserAPC},
     },
 };
+
+#[derive(Debug, Copy, Clone)]
+enum ENetMode {
+    Standalone = 0,
+    DedicatedServer = 1,
+    ListenServer = 2,
+    Client = 3,
+}
+
+lazy_static::lazy_static! {
+    static ref NET_MODE: Mutex<ENetMode> = Mutex::new(ENetMode::Standalone);
+}
+
+fn parse_arguments() {
+    let args: Vec<String> = std::env::args().collect();
+    for arg in args.iter() {
+        if let Some(value) = arg.strip_prefix("--net_mode=") {
+            let net_mode = match value {
+                "Standalone" => ENetMode::Standalone,
+                "DedicatedServer" => ENetMode::DedicatedServer,
+                "ListenServer" => ENetMode::ListenServer,
+                "Client" => ENetMode::Client,
+                _ => {
+                    error!("Invalid net_mode value: {value}");
+                    return;
+                }
+            };
+            let mut net_mode_lock = NET_MODE.lock().unwrap();
+            *net_mode_lock = net_mode;
+            info!("net_mode parsed argument is: {:?}", net_mode);
+        }
+    }
+}
 
 // x3daudio1_7.dll
 #[no_mangle]
@@ -39,6 +73,7 @@ extern "system" fn DllMain(dll_module: HMODULE, call_reason: u32, _: *mut ()) ->
 unsafe extern "system" fn init(_: usize) {
     if let Ok(_bin_dir) = setup() {
         info!("dll_hook loaded",);
+        parse_arguments();
 
         if let Err(e) = patch() {
             error!("{e:#}");
@@ -272,15 +307,14 @@ unsafe fn patch() -> Result<()> {
                     "world_info = {world_info:?} net_mode = {}",
                     element_ptr!(world_info => .net_mode.*)
                 );
-                let net_mode = if element_ptr!(gengine => .client.*).is_null() {
-                    1
-                } else {
-                    2
+                let net_mode = {
+                    let net_mode = NET_MODE.lock().unwrap();
+                    *net_mode as u8
                 };
                 *element_ptr!(world_info => .net_mode) = net_mode;
                 //*element_ptr!(world_info => .next_switch_countdown) =
                 //    *element_ptr!(net_driver => .server_travel_pause);
-                info!("net_mode is now {net_mode}");
+                info!("net_mode is now {:?}", net_mode);
             } else {
                 info!("failed to construct net driver");
             }
